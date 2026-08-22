@@ -132,7 +132,7 @@ For a complete multi-button remote with trigger_id + choose, see `references/exa
 Z2M creates **MQTT device triggers** that are autodiscovered. These are acceptable because Z2M manages the device-to-trigger mapping.
 
 ```yaml
-# ✅ Z2M device trigger - autodiscovered
+# ✅ Z2M device trigger - autodiscovered, and the one to prefer
 triggers:
   - trigger: device
     device_id: abc123def456  # OK for Z2M, managed by autodiscovery
@@ -140,12 +140,24 @@ triggers:
     type: action
     subtype: single
 
-# Alternative: MQTT topic trigger (more explicit)
+# ⚠️ Fallback: MQTT topic trigger - explicit, but brittle
 triggers:
   - trigger: mqtt
     topic: "zigbee2mqtt/Bedroom Button/action"
     payload: "single"
 ```
+
+**Prefer the device trigger over the raw topic.** The Z2M device is identified by
+`zigbee2mqtt_<IEEE>`, so a device trigger survives both a re-pair **and** a friendly-name rename.
+The `mqtt:` topic contains the friendly name, so renaming the device in Z2M silently breaks the
+trigger — the automation stays enabled and simply stops firing. If you do use a topic trigger,
+say in a `note:` that the topic tracks the Z2M friendly name.
+
+**Don't trigger on `sensor.<device>_action`.** Z2M has deprecated the legacy action sensor and
+recommends the device trigger instead. Older tutorials and imported Node-RED flows are full of
+`sensor.*_action` state triggers — don't carry that pattern into new HA automations.
+
+Put the IEEE in a `note:` on the trigger, so the opaque hex `device_id` is greppable later.
 
 #### Z2M Device Trigger Discovery
 

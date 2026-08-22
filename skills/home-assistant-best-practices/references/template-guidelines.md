@@ -33,7 +33,7 @@ actions:
       entity_id: light.bedroom
     data:
       brightness_pct: "{{ states('input_number.default_brightness') | int }}"
-      kelvin: "{{ 6500 if is_state('binary_sensor.daytime', 'on') else 2700 }}"
+      color_temp_kelvin: "{{ 6500 if is_state('binary_sensor.daytime', 'on') else 2700 }}"
 ```
 
 ### 2. Dynamic Notification Messages
@@ -429,11 +429,26 @@ Always use `states()` function, not `states.sensor.x.state`:
 
 ### Attribute Access with Default
 
+`state_attr()` returns **`None`** for a missing attribute, and Jinja's `default` filter only
+substitutes for *undefined* — so a bare `| default(0)` renders `None`. Pass `true` as the second
+argument to catch falsy values (including `None`), or test explicitly:
+
 ```yaml
+# GOOD - the boolean second argument makes default() catch None
+{{ state_attr('light.bedroom', 'brightness') | default(0, true) }}
+
+# ALSO GOOD - explicit, and distinguishes None from a legitimate 0
+{{ state_attr('light.bedroom', 'brightness') if state_attr('light.bedroom', 'brightness') is not none else 0 }}
+
+# BAD - renders "None"; default() does not fire for a value that merely exists as None
 {{ state_attr('light.bedroom', 'brightness') | default(0) }}
 ```
 
 ### Time Since State Change
+
+`last_changed` / `last_updated` are only reachable through the object form, which is the one
+case that overrides [Safe State Access](#safe-state-access) above — it still raises if the
+entity does not exist, so guard it when that is possible.
 
 ```yaml
 {% set last_changed = states.binary_sensor.motion.last_changed %}
@@ -479,11 +494,12 @@ Always use `states()` function, not `states.sensor.x.state`:
 {{ states('sensor.x') | float(default=0) }}
 {{ states('sensor.x') | int(default=-1) }}
 
-# For attribute access
-{{ state_attr('light.x', 'brightness') | default(100) }}
+# For attribute access - the `true` is required; state_attr returns None, not undefined
+{{ state_attr('light.x', 'brightness') | default(100, true) }}
 
-# For entire template failures
-{{ states('sensor.missing') | default('Unknown', true) }}
+# For a missing or unavailable entity - states() returns the STRING 'unknown'/'unavailable',
+# which is truthy, so `| default(...)` never fires. Test the value instead:
+{{ states('sensor.missing') if has_value('sensor.missing') else 'Unknown' }}
 ```
 
 ### Availability Template
@@ -549,12 +565,22 @@ template:
     sensor:
       - name: "Complex Calculation"
         state: >
-          {% set total = 0 %}
+          {% set ns = namespace(total=0) %}
           {% for sensor in states.sensor | selectattr('attributes.device_class', 'eq', 'energy') %}
-            {% set total = total + states(sensor.entity_id) | float(0) %}
+            {% set ns.total = ns.total + states(sensor.entity_id) | float(0) %}
           {% endfor %}
-          {{ total }}
+          {{ ns.total }}
 ```
+
+> **A plain `{% set %}` inside a `{% for %}` does not survive the loop.** Jinja scopes it to
+> the loop body, so `{% set total = total + ... %}` leaves `total` at its pre-loop value and the
+> sensor renders `0` — with no error. Accumulate through a `namespace()` as above, or avoid the
+> loop entirely:
+>
+> ```jinja
+> {{ states.sensor | selectattr('attributes.device_class', 'eq', 'energy')
+>    | map(attribute='entity_id') | map('states') | map('float', 0) | sum }}
+> ```
 
 ### Cache Complex Calculations
 

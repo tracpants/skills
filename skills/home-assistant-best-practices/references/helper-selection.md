@@ -24,6 +24,13 @@ Helpers reach Home Assistant through two different creation mechanisms — which
 - **Storage-collection helpers** — created via a per-domain WebSocket collection command (`<domain>/create`, e.g. `input_boolean/create`, `counter/create`) with flat, structured fields: `input_boolean`, `input_number`, `input_select`, `input_text`, `input_datetime`, `input_button`, `counter`, `timer`, `schedule`, `zone`, `person`, `tag`. (`schedule` additionally offers an optional YAML mode.)
 - **Config-entry-flow helpers** — created through the generic config-entry flow (`config_entries/flow`, handler = the helper domain), often a multi-step flow that begins with a sub-type menu (see [Menu-Based Helpers](#menu-based-helpers)): `template`, `group`, `utility_meter`, `derivative`, `min_max`, `threshold`, `integration`, `statistics`, `trend`, `random`, `filter`, `tod`, `generic_thermostat`, `generic_hygrostat`, `switch_as_x`, `bayesian`, `mold_indicator`, `history_stats`.
 
+> **The YAML in this file shows the config *shape*, not a file to hand-edit.** Nearly every helper
+> below is created through the config-entry flow (see above) or a WebSocket collection command, and
+> that is how an agent should create it — the `- platform:` blocks are the clearest way to show which
+> fields exist and what they mean. Several of these platform schemas do still load from
+> `configuration.yaml`, but a helper created that way is not UI-editable, needs a reload or restart,
+> and does not appear in the helper registry. Write YAML only if the user asks for it.
+
 ## Menu-Based Helpers
 
 Several helper integrations — most prominently **`template`**, **`group`**, and **`random`** — start with a sub-type menu before showing fields. The field set isn't known until a sub-type is picked.

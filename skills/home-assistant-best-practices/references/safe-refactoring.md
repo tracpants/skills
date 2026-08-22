@@ -14,7 +14,10 @@ Answer three questions before touching anything:
 
 1. **What changes?** Entity ID, automation structure, sensor type, or trigger semantics.
 2. **What sibling entities share the same device?** Query the device to list every entity it owns (battery sensor, update entity, diagnostic button). Plan changes for all siblings together.
-   - Query the device via the HA REST API (`GET /api/states/<entity_id>`) or inspect Settings > Devices.
+   - The device-to-entities mapping lives in the **registries, which are WebSocket-only** — there is no
+     REST endpoint for it. Call `config/entity_registry/list` (filter on `device_id`) and
+     `config/device_registry/list`, or inspect Settings > Devices. `GET /api/states/<entity_id>` returns one
+     entity's state and attributes and carries no registry data — it cannot answer this question.
 3. **Rename one entity or all device entities?** Devices bundle 2-6 entities. Renaming the primary but leaving siblings with the old naming scheme creates inconsistency.
 
 ### Step 2: Search ALL consumers
@@ -29,7 +32,11 @@ Search every component type that references entity IDs. Do not limit searches to
 | Scenes | grep `scenes.yaml` |
 | Config-Entry-based groups | `GET /api/config/config_entries/entry?type=config&domain=group` — members in `options.entities`; entity registry renames do NOT update these automatically (→ see Config-Entry-Groups section) |
 | Config-Entry integrations (Better Thermostat, Generic Thermostat, Generic Hygrostat, Threshold Helper, Min/Max Helper) | `GET /api/config/config_entries/entry` — scan `data` and `options` fields for the old entity ID; entity registry renames do NOT update these fields automatically (→ see Config-Entry-Data section) |
-| Other | Check AppDaemon apps, Node-RED flows, Pyscript scripts, or any custom integration that references entity IDs |
+| Voice assistant exposure | Check exposure first — WebSocket `homeassistant/expose_entity/list`, or Settings > Voice assistants > Expose. **Alexa and Google Assistant key on `entity_id`**, so a rename reads to them as a *new* device: the old name is orphaned in the assistant's app as a permanently-unresponsive entry that must be deleted by hand, and any assistant-side routine naming it breaks. Neither is reachable from HA — weigh this cost against the naming gain (→ see Voice-Assistant-Exposure section) |
+| Energy dashboard | `energy/get_prefs` — `energy_sources[].stat_energy_from/to`, `stat_cost`, and `device_consumption[].stat_consumption` all store bare entity IDs and do NOT follow a registry rename. The source silently disappears from the dashboard; fix with `energy/save_prefs` |
+| Recorder filters | grep `configuration.yaml` for `recorder:` `include`/`exclude` `entities` and `entity_globs`. A renamed entity silently falls out of (or into) recording — the symptom is missing history days later, long after the rename is forgotten |
+| Node-RED | grep the flow export (`flows.json`). Node-RED hardcodes entity IDs as strings in every node that touches HA; a rename fails there **silently**, with the flow still deployed and running. Search the file, not the editor UI |
+| Other | Check AppDaemon apps, Pyscript scripts, or any custom integration that references entity IDs |
 
 Record every location found. This list becomes your update checklist for Step 4.
 
@@ -99,6 +106,26 @@ When converting `device_id` triggers to `entity_id` triggers, or replacing `wait
 
 **Automation callers (Step 2):**
 Search for scripts or other automations that call the automation you are restructuring via `automation.trigger` or `automation.turn_on`. Renaming or splitting an automation changes its entity_id and breaks these callers.
+
+---
+
+## Voice-Assistant-Exposure
+
+Entities exposed to **Alexa** or **Google Assistant** (via Nabu Casa Cloud or the manual
+integrations) are matched by `entity_id`, not by any registry identifier. A rename is therefore
+not a rename to the assistant — it is a delete plus an add:
+
+- The old entity_id becomes an **orphaned, permanently-unresponsive device** in the Alexa/Google
+  app. HA cannot remove it; the user must delete it by hand in that app.
+- Any **assistant-side routine** referencing the old name breaks, and those routines are invisible
+  from HA — nothing in an HA-side search will find them.
+- The new entity_id arrives as a new device, so it lands with default settings and no group/room
+  membership on the assistant side.
+
+**Check exposure before renaming** (WebSocket `homeassistant/expose_entity/list`, or
+Settings > Voice assistants > Expose). If the entity is exposed, say so and let the user decide:
+for a cosmetic naming improvement the manual cleanup usually costs more than the inconsistency,
+and keeping a non-conforming entity_id is a legitimate outcome.
 
 ---
 

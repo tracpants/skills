@@ -576,11 +576,11 @@ Custom cards predating sections views (early 2024) that haven't updated since ar
 
 For iterative dashboard design with visual feedback, add a browser automation MCP server:
 
-### Recommended MCP Servers
+### Browser automation
 
-- **Playwright MCP** (`@anthropic/mcp-playwright`) — Take screenshots, interact with pages
-- **Puppeteer MCP** — Similar browser automation capabilities
-- **Browser DevTools MCP** — Inspect elements, debug layouts
+Any MCP server that can navigate a URL and return a screenshot works here — Playwright-, Puppeteer-
+and DevTools-based servers all exist. Use whichever is already configured; the workflow below does
+not depend on which one, and package names change often enough that they are not worth pinning here.
 
 ### Workflow
 
