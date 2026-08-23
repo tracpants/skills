@@ -1,0 +1,96 @@
+name: Sync with upstream
+
+# Opens a PR when homeassistant-ai/skills moves. It never pushes to main —
+# this fork carries local patches (see FORK.md) that upstream doesn't have,
+# so every upstream change gets reviewed before it lands.
+#
+# Requires Actions to be enabled on this fork (one-time: repo → Actions tab →
+# "I understand my workflows, go ahead and enable them").
+
+on:
+  schedule:
+    - cron: '0 22 * * 0'      # Sundays 22:00 UTC ≈ Monday 08:00/09:00 Sydney
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        id: fetch
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/homeassistant-ai/skills.git
+          git fetch -q upstream main
+          behind=$(git rev-list --count origin/main..upstream/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          {
+            echo 'log<<EOFLOG'
+            git log --oneline --no-decorate origin/main..upstream/main
+            echo 'EOFLOG'
+          } >> "$GITHUB_OUTPUT"
+          echo "$behind new upstream commit(s)"
+
+      - name: Merge onto sync branch
+        if: steps.fetch.outputs.behind != '0'
+        id: merge
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B sync/upstream origin/main
+          if git merge --no-edit upstream/main; then
+            echo "conflicted=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflicted=true" >> "$GITHUB_OUTPUT"
+            {
+              echo 'files<<EOFC'
+              git diff --name-only --diff-filter=U
+              echo 'EOFC'
+            } >> "$GITHUB_OUTPUT"
+            git merge --abort
+          fi
+
+      # Clean merge -> a PR to review and merge.
+      - name: Open sync PR
+        if: steps.merge.outputs.conflicted == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOG: ${{ steps.fetch.outputs.log }}
+        run: |
+          set -euo pipefail
+          git push -f origin sync/upstream
+          if gh pr view sync/upstream --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            gh pr comment sync/upstream --body "Refreshed — upstream moved again."
+            exit 0
+          fi
+          gh pr create --base main --head sync/upstream \
+            --title "Sync with upstream (${{ steps.fetch.outputs.behind }} commit(s))" \
+            --body "$(printf 'Merged cleanly. Upstream commits:\n\n```\n%s\n```\n\nBefore merging, check the local patches listed in FORK.md are still intact — a clean merge means no textual conflict, not that upstream did not rewrite a section this fork had fixed.' "$LOG")"
+
+      # Conflict -> an issue, because a conflicted branch cannot be a reviewable PR.
+      - name: Open conflict issue
+        if: steps.merge.outputs.conflicted == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOG: ${{ steps.fetch.outputs.log }}
+          FILES: ${{ steps.merge.outputs.files }}
+        run: |
+          set -euo pipefail
+          title="Upstream sync conflicts (${{ steps.fetch.outputs.behind }} commit(s))"
+          if gh issue list --state open --search "$title in:title" --json number --jq 'length' | grep -qv '^0$'; then
+            echo "Issue already open."; exit 0
+          fi
+          gh issue create --title "$title" --body "$(printf 'Upstream moved and the merge conflicts. Resolve locally:\n\n```\nscripts/sync-upstream.sh\n```\n\nConflicting files:\n\n```\n%s\n```\n\nUpstream commits:\n\n```\n%s\n```\n\nVersion fields conflict by design — upstream bumps the minor, this fork bumps the patch. Keep the higher of each.' "$FILES" "$LOG")"
